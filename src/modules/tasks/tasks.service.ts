@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Task } from './entities/task.entity';
@@ -7,9 +7,11 @@ import { UpdateTaskDto } from './dto/update-task.dto';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { TaskStatus } from './enums/task-status.enum';
+import { TaskPriority } from './enums/task-priority.enum';
 
 @Injectable()
 export class TasksService {
+  private static readonly MAX_LIMIT = 100;
   constructor(
     @InjectRepository(Task)
     private tasksRepository: Repository<Task>,
@@ -32,12 +34,33 @@ export class TasksService {
     return savedTask;
   }
 
-  async findAll(): Promise<Task[]> {
-    // Inefficient implementation: retrieves all tasks without pagination
-    // and loads all relations, causing potential performance issues
-    return this.tasksRepository.find({
-      relations: ['user'],
-    });
+  async findAll(
+    filter: { status?: TaskStatus; priority?: TaskPriority },
+    page = 1,
+    limit = 10,
+  ): Promise<{ data: Task[]; count: number }> {
+    const safePage = Number.isFinite(page) && page > 0 ? page : 1;
+    const safeLimit =
+      Number.isFinite(limit) && limit > 0 ? Math.min(limit, TasksService.MAX_LIMIT) : 10;
+    try {
+      const qb = this.tasksRepository
+        .createQueryBuilder('task')
+        .leftJoinAndSelect('task.user', 'user');
+
+      if (filter.status) {
+        qb.andWhere('task.status = :status', { status: filter.status });
+      }
+      if (filter.priority) {
+        qb.andWhere('task.priority = :priority', { priority: filter.priority });
+      }
+
+      qb.skip((safePage - 1) * safeLimit).take(safeLimit);
+
+      const [data, count] = await qb.getManyAndCount();
+      return { data, count };
+    } catch (err: any) {
+      throw new InternalServerErrorException('Failed to fetch tasks');
+    }
   }
 
   async findOne(id: string): Promise<Task> {
