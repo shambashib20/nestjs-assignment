@@ -8,9 +8,7 @@ import {
   Delete,
   UseGuards,
   Query,
-  HttpException,
   HttpStatus,
-  UseInterceptors,
   InternalServerErrorException,
   Req,
   Logger,
@@ -21,9 +19,8 @@ import {
 import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+
 import { Task } from './entities/task.entity';
 import { TaskStatus } from './enums/task-status.enum';
 import { TaskPriority } from './enums/task-priority.enum';

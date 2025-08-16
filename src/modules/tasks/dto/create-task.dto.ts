@@ -1,4 +1,4 @@
-import { IsDateString, IsEnum, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsDateString, IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { TaskStatus } from '../enums/task-status.enum';
 import { TaskPriority } from '../enums/task-priority.enum';
@@ -34,4 +34,4 @@ export class CreateTaskDto {
   // @IsUUID()
   // @IsNotEmpty()
   // userId: string;
-} 
+}

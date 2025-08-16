@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, DeleteResult, QueryRunner, Repository, UpdateResult } from 'typeorm';
+import { DataSource, DeleteResult, Repository, UpdateResult } from 'typeorm';
 import { Task } from './entities/task.entity';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
@@ -94,7 +94,9 @@ export class TasksService {
       const [data, count] = await qb.getManyAndCount();
       return { data, count };
     } catch (err: any) {
-      throw new InternalServerErrorException('Failed to fetch tasks');
+      console.error('Error in findAll():', err);
+
+      throw new InternalServerErrorException('Failed to fetch tasks', { cause: err });
     }
   }
 

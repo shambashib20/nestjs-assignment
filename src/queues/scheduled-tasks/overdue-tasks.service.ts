@@ -13,36 +13,48 @@ export class OverdueTasksService {
 
   constructor(
     @InjectQueue('task-processing')
-    private taskQueue: Queue,
+    private readonly taskQueue: Queue, // ✅ marked as readonly
     @InjectRepository(Task)
-    private tasksRepository: Repository<Task>,
+    private readonly tasksRepository: Repository<Task>, // ✅ marked as readonly
   ) {}
 
-  // TODO: Implement the overdue tasks checker
-  // This method should run every hour and check for overdue tasks
   @Cron(CronExpression.EVERY_HOUR)
   async checkOverdueTasks() {
     this.logger.debug('Checking for overdue tasks...');
-    
-    // TODO: Implement overdue tasks checking logic
-    // 1. Find all tasks that are overdue (due date is in the past)
-    // 2. Add them to the task processing queue
-    // 3. Log the number of overdue tasks found
-    
-    // Example implementation (incomplete - to be implemented by candidates)
+
+    //  fixed!
     const now = new Date();
-    const overdueTasks = await this.tasksRepository.find({
-      where: {
-        dueDate: LessThan(now),
-        status: TaskStatus.PENDING,
-      },
-    });
-    
-    this.logger.log(`Found ${overdueTasks.length} overdue tasks`);
-    
-    // Add tasks to the queue to be processed
-    // TODO: Implement adding tasks to the queue
-    
-    this.logger.debug('Overdue tasks check completed');
+
+    try {
+      const overdueTasks = await this.tasksRepository.find({
+        where: {
+          dueDate: LessThan(now),
+          status: TaskStatus.PENDING,
+        },
+        select: ['id', 'title', 'dueDate'], // fetch only needed fields
+      });
+
+      if (overdueTasks.length === 0) {
+        this.logger.log('✅ No overdue tasks found');
+        return;
+      }
+
+      const jobs = overdueTasks.map(task => ({
+        name: 'mark-overdue',
+        data: { taskId: task.id, dueDate: task.dueDate },
+        opts: { removeOnComplete: true, attempts: 3 },
+      }));
+
+      await this.taskQueue.addBulk(jobs);
+
+      this.logger.log(`Found ${overdueTasks.length} overdue tasks — queued for processing`);
+    } catch (err: unknown) {
+      this.logger.error(
+        `Failed to check overdue tasks: ${(err as Error).message}`,
+        (err as Error).stack,
+      );
+    } finally {
+      this.logger.debug('Overdue tasks check completed');
+    }
   }
 } 
