@@ -15,6 +15,8 @@ import {
   Req,
   Logger,
   BadRequestException,
+  NotFoundException,
+  HttpCode,
 } from '@nestjs/common';
 import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
@@ -114,31 +116,93 @@ export class TasksController {
   // }
 
   @Get(':id')
+  @Roles('admin', 'user')
   @ApiOperation({ summary: 'Find a task by ID' })
   async findOne(@Param('id') id: string) {
-    const task = await this.tasksService.findOne(id);
+    try {
+      this.logger.log(`Fetching task with ID ${id}`);
+      const task = await this.tasksService.findOne(id);
+      this.logger.log(`Successfully fetched task ${task.id}`);
+      return task;
+    } catch (err: unknown) {
+      if (err instanceof NotFoundException) {
+        this.logger.warn(`Task ${id} not found`);
+        throw err;
+      }
 
-    if (!task) {
-      // Inefficient error handling: Revealing internal details
-      throw new HttpException(`Task with ID ${id} not found in the database`, HttpStatus.NOT_FOUND);
+      if (err instanceof Error) {
+        this.logger.error(
+          `Unexpected error in controller while fetching task ${id}: ${err.message}`,
+          err.stack,
+        );
+      } else {
+        this.logger.error(
+          `Non-error thrown in controller while fetching task ${id}`,
+          JSON.stringify(err),
+        );
+      }
+
+      throw new InternalServerErrorException('Something went wrong while retrieving the task');
     }
-
-    return task;
   }
 
   @Patch(':id')
+  @Roles('admin', 'user')
   @ApiOperation({ summary: 'Update a task' })
-  update(@Param('id') id: string, @Body() updateTaskDto: UpdateTaskDto) {
-    // No validation if task exists before update
-    return this.tasksService.update(id, updateTaskDto);
+  async update(@Param('id') id: string, @Body() updateTaskDto: UpdateTaskDto) {
+    try {
+      this.logger.log(`User attempting to update task ${id}`);
+      const updatedTask = await this.tasksService.update(id, updateTaskDto);
+      this.logger.log(`Task ${updatedTask.id} updated successfully`);
+      return updatedTask;
+    } catch (err: unknown) {
+      if (err instanceof NotFoundException) {
+        this.logger.warn(`Update failed: Task ${id} not found`);
+        throw err;
+      }
+
+      if (err instanceof Error) {
+        this.logger.error(
+          `Unexpected error in controller while updating task ${id}: ${err.message}`,
+          err.stack,
+        );
+      } else {
+        this.logger.error(
+          `Unexpected non-error in controller during task update ${id}`,
+          JSON.stringify(err),
+        );
+      }
+
+      throw new InternalServerErrorException('Something went wrong while updating the task');
+    }
   }
 
   @Delete(':id')
+  @Roles('admin', 'user')
   @ApiOperation({ summary: 'Delete a task' })
-  remove(@Param('id') id: string) {
-    // No validation if task exists before removal
-    // No status code returned for success
-    return this.tasksService.remove(id);
+  @HttpCode(HttpStatus.NO_CONTENT) // 204 - resource deleted successfully
+  async remove(@Param('id') id: string) {
+    try {
+      const deleted = await this.tasksService.remove(id);
+
+      if (!deleted) {
+        throw new NotFoundException(`Task with ID ${id} not found`);
+      }
+
+      return;
+    } catch (error: unknown) {
+      const err = error as Error;
+
+      this.logger.error(`Failed to delete task with ID ${id}`, err.stack);
+
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException(
+        `An error occurred while deleting the task with ID ${id}`,
+      );
+    }
   }
 
   @Post('batch')

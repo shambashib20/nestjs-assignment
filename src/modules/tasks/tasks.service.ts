@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, QueryRunner, Repository } from 'typeorm';
+import { DataSource, DeleteResult, QueryRunner, Repository } from 'typeorm';
 import { Task } from './entities/task.entity';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
@@ -127,38 +127,80 @@ export class TasksService {
   }
 
   async update(id: string, updateTaskDto: UpdateTaskDto): Promise<Task> {
-    // Inefficient implementation: multiple database calls
-    // and no transaction handling
-    const task = await this.findOne(id);
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    const originalStatus = task.status;
-
-    // Directly update each field individually
-    if (updateTaskDto.title) task.title = updateTaskDto.title;
-    if (updateTaskDto.description) task.description = updateTaskDto.description;
-    if (updateTaskDto.status) task.status = updateTaskDto.status;
-    if (updateTaskDto.priority) task.priority = updateTaskDto.priority;
-    // if (updateTaskDto.dueDate) task.dueDate = updateTaskDto.dueDate;
-
-    const updatedTask = await this.tasksRepository.save(task);
-
-    // Add to queue if status changed, but without proper error handling
-    if (originalStatus !== updatedTask.status) {
-      this.taskQueue.add('task-status-update', {
-        taskId: updatedTask.id,
-        status: updatedTask.status,
+    try {
+      const task = await queryRunner.manager.findOne(Task, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
       });
+      if (!task) {
+        this.logger.warn(`Attempt to update non-existing task ${id}`);
+        throw new NotFoundException(`Task with ID ${id} not found`);
+      }
+
+      const originalStatus = task.status;
+
+      const updated = this.tasksRepository.merge(task, updateTaskDto);
+
+      const savedTask = await queryRunner.manager.save(Task, updated);
+
+      // If status changed, enqueue update event
+      if (originalStatus !== savedTask.status) {
+        try {
+          await this.taskQueue.add('task-status-update', {
+            taskId: savedTask.id,
+            status: savedTask.status,
+          });
+        } catch (queueErr) {
+          this.logger.error(
+            `Failed to enqueue status update for task ${savedTask.id}: ${(queueErr as Error).message}`,
+            (queueErr as Error).stack,
+          );
+          // don’t fail request if queue push fails
+        }
+      }
+
+      await queryRunner.commitTransaction();
+      this.logger.log(`Task ${savedTask.id} updated successfully`);
+      return savedTask;
+    } catch (err: unknown) {
+      await queryRunner.rollbackTransaction();
+
+      if (err instanceof NotFoundException) {
+        throw err;
+      }
+      if (err instanceof Error) {
+        this.logger.error(`Error updating task ${id}: ${err.message}`, err.stack);
+      } else {
+        this.logger.error(`Unexpected non-error during task update for ${id}`, JSON.stringify(err));
+      }
+
+      throw new InternalServerErrorException('Unable to update task at this time');
+    } finally {
+      await queryRunner.release();
     }
-
-    return updatedTask;
   }
 
-  async remove(id: string): Promise<void> {
-    // Inefficient implementation: two separate database calls
-    const task = await this.findOne(id);
-    await this.tasksRepository.remove(task);
-  }
+  async remove(id: string): Promise<boolean> {
+    try {
+      // Single DB call: delete by id
+      const result: DeleteResult = await this.tasksRepository.delete(id);
 
+      if (result.affected === 0) {
+        return false;
+      }
+
+      this.logger.log(`Task with ID ${id} deleted successfully`);
+      return true;
+    } catch (error) {
+      const err = error as Error; // 👈 cast
+      this.logger.error(`Error deleting task with ID ${id}`, err.stack);
+      throw err;
+    }
+  }
   async findByStatus(status: TaskStatus): Promise<Task[]> {
     // Inefficient implementation: doesn't use proper repository patterns
     const query = 'SELECT * FROM tasks WHERE status = $1';
