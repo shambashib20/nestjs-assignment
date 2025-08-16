@@ -12,6 +12,9 @@ import {
   HttpStatus,
   UseInterceptors,
   InternalServerErrorException,
+  Req,
+  Logger,
+  BadRequestException,
 } from '@nestjs/common';
 import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
@@ -29,9 +32,13 @@ import { TaskFilterDto } from './dto/task-filter.dto';
 import { Roles } from '@common/decorators/roles.decorator';
 import { RolesGuard } from '@common/guards/roles.guard';
 
-// Done! Implemented the authguard! Now moving forward for rate limiting!
+interface JwtPayload {
+  sub: string;
+  email: string;
+  roles: string[];
+}
 
-// TODOS: Rate Limition in progress
+// Done! Implemented the authguard! Now moving forward for rate limiting!
 
 @ApiTags('tasks')
 @Controller('tasks')
@@ -40,12 +47,35 @@ import { RolesGuard } from '@common/guards/roles.guard';
 @RateLimit({ limit: 100, windowMs: 60000 })
 @ApiBearerAuth()
 export class TasksController {
+  private readonly logger = new Logger(TasksController.name);
   constructor(private readonly tasksService: TasksService) {}
 
   @Post()
+  @Roles('admin', 'user')
   @ApiOperation({ summary: 'Create a new task' })
-  create(@Body() createTaskDto: CreateTaskDto) {
-    return this.tasksService.create(createTaskDto);
+  async create(@Body() createTaskDto: CreateTaskDto, @Req() req: Request & { user: JwtPayload }) {
+    try {
+      const userId = req.user.sub;
+      this.logger.log(`User ${userId} is attempting to create a task`);
+
+      const task = await this.tasksService.create(createTaskDto, userId);
+
+      this.logger.log(`Task ${task.id} successfully created by user ${userId}`);
+      return task;
+    } catch (err: unknown) {
+      if (err instanceof BadRequestException) {
+        this.logger.warn(`Validation failed: ${JSON.stringify(err.getResponse())}`);
+        throw err;
+      }
+
+      if (err instanceof Error) {
+        this.logger.error(`Unexpected error in task creation: ${err.message}`, err.stack);
+      } else {
+        this.logger.error(`Unexpected non-error thrown: ${JSON.stringify(err)}`);
+      }
+
+      throw new InternalServerErrorException('Something went wrong while creating the task');
+    }
   }
 
   @Get()

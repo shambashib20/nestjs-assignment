@@ -1,6 +1,12 @@
-import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, QueryRunner, Repository } from 'typeorm';
 import { Task } from './entities/task.entity';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
@@ -11,27 +17,56 @@ import { TaskPriority } from './enums/task-priority.enum';
 
 @Injectable()
 export class TasksService {
+  private readonly logger = new Logger(TasksService.name);
   private static readonly MAX_LIMIT = 100;
+
   constructor(
-    @InjectRepository(Task)
-    private tasksRepository: Repository<Task>,
-    @InjectQueue('task-processing')
-    private taskQueue: Queue,
+    @InjectRepository(Task) private readonly tasksRepository: Repository<Task>,
+    @InjectQueue('task-processing') private readonly taskQueue: Queue,
+    private readonly dataSource: DataSource,
   ) {}
 
-  async create(createTaskDto: CreateTaskDto): Promise<Task> {
-    // Inefficient implementation: creates the task but doesn't use a single transaction
-    // for creating and adding to queue, potential for inconsistent state
-    const task = this.tasksRepository.create(createTaskDto);
-    const savedTask = await this.tasksRepository.save(task);
+  async create(createTaskDto: CreateTaskDto, userId: string): Promise<Task> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    // Add to queue without waiting for confirmation or handling errors
-    this.taskQueue.add('task-status-update', {
-      taskId: savedTask.id,
-      status: savedTask.status,
-    });
+    try {
+      const task = queryRunner.manager.create(Task, {
+        ...createTaskDto,
+        userId,
+      });
 
-    return savedTask;
+      const savedTask = await queryRunner.manager.save(task);
+
+      await this.taskQueue.add('task-status-update', {
+        taskId: savedTask.id,
+        status: savedTask.status,
+      });
+
+      await queryRunner.commitTransaction();
+
+      this.logger.log(`Task ${savedTask.id} created by user ${userId}`);
+      return savedTask;
+    } catch (err: unknown) {
+      await queryRunner.rollbackTransaction();
+
+      if (err instanceof Error) {
+        this.logger.error(`Task creation failed for user ${userId}: ${err.message}`, err.stack);
+
+        // if it's a query error, return a 400
+        if ((err as any).code === '23505') {
+          // duplicate key example (Postgres)
+          throw new BadRequestException('Task already exists');
+        }
+        throw new InternalServerErrorException(err.message); // keep real cause
+      } else {
+        this.logger.error(`Task creation failed for user ${userId}`, JSON.stringify(err));
+        throw new InternalServerErrorException('Unknown error while creating task');
+      }
+    } finally {
+      await queryRunner.release(); // ensure release
+    }
   }
 
   async findAll(
@@ -64,17 +99,31 @@ export class TasksService {
   }
 
   async findOne(id: string): Promise<Task> {
-    // Inefficient implementation: two separate database calls
-    const count = await this.tasksRepository.count({ where: { id } });
-
-    if (count === 0) {
-      throw new NotFoundException(`Task with ID ${id} not found`);
+    //Fixed!
+    try {
+      const task = await this.tasksRepository.findOne({
+        where: { id },
+        relations: ['user'],
+      });
+      if (!task) {
+        this.logger.warn(`Task with ID ${id} not found`);
+        throw new NotFoundException('Task not found');
+      }
+      return task;
+    } catch (err: unknown) {
+      if (err instanceof NotFoundException) {
+        throw err;
+      }
+      if (err instanceof Error) {
+        this.logger.error(`Unexpected error while fetching task ${id}: ${err.message}`, err.stack);
+      } else {
+        this.logger.error(
+          `Unexpected non-error thrown while fetching task ${id}`,
+          JSON.stringify(err),
+        );
+      }
+      throw new InternalServerErrorException('Unable to fetch task at this time');
     }
-
-    return (await this.tasksRepository.findOne({
-      where: { id },
-      relations: ['user'],
-    })) as Task;
   }
 
   async update(id: string, updateTaskDto: UpdateTaskDto): Promise<Task> {
@@ -89,7 +138,7 @@ export class TasksService {
     if (updateTaskDto.description) task.description = updateTaskDto.description;
     if (updateTaskDto.status) task.status = updateTaskDto.status;
     if (updateTaskDto.priority) task.priority = updateTaskDto.priority;
-    if (updateTaskDto.dueDate) task.dueDate = updateTaskDto.dueDate;
+    // if (updateTaskDto.dueDate) task.dueDate = updateTaskDto.dueDate;
 
     const updatedTask = await this.tasksRepository.save(task);
 

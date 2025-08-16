@@ -27,10 +27,11 @@ export class CreateTaskDto {
   @ApiProperty({ example: '2023-12-31T23:59:59Z', required: false })
   @IsDateString()
   @IsOptional()
-  dueDate?: Date;
+  dueDate?: string; // FIXED: string instead of Date
 
-  @ApiProperty({ example: '123e4567-e89b-12d3-a456-426614174000' })
-  @IsUUID()
-  @IsNotEmpty()
-  userId: string;
+  // FIXED: REMOVED userId as I will pass the userId from middleware!
+  // @ApiProperty({ example: '123e4567-e89b-12d3-a456-426614174000' })
+  // @IsUUID()
+  // @IsNotEmpty()
+  // userId: string;
 } 
