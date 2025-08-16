@@ -33,6 +33,7 @@ import { JwtAuthGuard } from '@modules/auth/guards/jwt-auth.guard';
 import { TaskFilterDto } from './dto/task-filter.dto';
 import { Roles } from '@common/decorators/roles.decorator';
 import { RolesGuard } from '@common/guards/roles.guard';
+import { BatchProcessDto } from './dto/batch-process-task.dto';
 
 interface JwtPayload {
   sub: string;
@@ -50,6 +51,7 @@ interface JwtPayload {
 @ApiBearerAuth()
 export class TasksController {
   private readonly logger = new Logger(TasksController.name);
+  taskRepository: any;
   constructor(private readonly tasksService: TasksService) {}
 
   @Post()
@@ -97,23 +99,23 @@ export class TasksController {
       throw new InternalServerErrorException('Unable to list tasks at this time');
     }
   }
-  // @Get('stats')
-  // @ApiOperation({ summary: 'Get task statistics' })
-  // async getStats() {
-  //   // Inefficient approach: N+1 query problem
-  //   const tasks = await this.taskRepository.find();
+  @Get('stats')
+  @ApiOperation({ summary: 'Get task statistics' })
+  async getStats() {
+    // Inefficient approach: N+1 query problem
+    const tasks = await this.taskRepository.find();
 
-  //   // Inefficient computation: Should be done with SQL aggregation
-  //   const statistics = {
-  //     total: tasks.length,
-  //     completed: tasks.filter(t => t.status === TaskStatus.COMPLETED).length,
-  //     inProgress: tasks.filter(t => t.status === TaskStatus.IN_PROGRESS).length,
-  //     pending: tasks.filter(t => t.status === TaskStatus.PENDING).length,
-  //     highPriority: tasks.filter(t => t.priority === TaskPriority.HIGH).length,
-  //   };
+    // Inefficient computation: Should be done with SQL aggregation
+    const statistics = {
+      total: tasks.length,
+      completed: tasks.filter((t: Task) => t.status === TaskStatus.COMPLETED).length,
+      inProgress: tasks.filter((t: Task) => t.status === TaskStatus.IN_PROGRESS).length,
+      pending: tasks.filter((t: Task) => t.status === TaskStatus.PENDING).length,
+      highPriority: tasks.filter((t: Task) => t.priority === TaskPriority.HIGH).length,
+    };
 
-  //   return statistics;
-  // }
+    return statistics;
+  }
 
   @Get(':id')
   @Roles('admin', 'user')
@@ -207,38 +209,36 @@ export class TasksController {
 
   @Post('batch')
   @ApiOperation({ summary: 'Batch process multiple tasks' })
-  async batchProcess(@Body() operations: { tasks: string[]; action: string }) {
-    // Inefficient batch processing: Sequential processing instead of bulk operations
+  async batchProcess(@Body() operations: BatchProcessDto) {
     const { tasks: taskIds, action } = operations;
-    const results = [];
 
-    // N+1 query problem: Processing tasks one by one
-    for (const taskId of taskIds) {
-      try {
-        let result;
+    try {
+      let result;
 
-        switch (action) {
-          case 'complete':
-            result = await this.tasksService.update(taskId, { status: TaskStatus.COMPLETED });
-            break;
-          case 'delete':
-            result = await this.tasksService.remove(taskId);
-            break;
-          default:
-            throw new HttpException(`Unknown action: ${action}`, HttpStatus.BAD_REQUEST);
-        }
+      switch (action) {
+        case 'complete':
+          result = await this.tasksService.batchUpdateStatus(taskIds, TaskStatus.COMPLETED);
+          break;
 
-        results.push({ taskId, success: true, result });
-      } catch (error) {
-        // Inconsistent error handling
-        results.push({
-          taskId,
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
+        case 'delete':
+          result = await this.tasksService.batchDelete(taskIds);
+          break;
+
+        default:
+          throw new BadRequestException(`Unsupported action: ${action}`);
       }
-    }
 
-    return results;
+      return {
+        success: true,
+        action,
+        affected: result.affected,
+      };
+    } catch (error: unknown) {
+      this.logger.error(
+        `Batch ${action} failed`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw new InternalServerErrorException('Batch operation failed');
+    }
   }
 }

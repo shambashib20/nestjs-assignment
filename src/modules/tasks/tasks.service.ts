@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, DeleteResult, QueryRunner, Repository } from 'typeorm';
+import { DataSource, DeleteResult, QueryRunner, Repository, UpdateResult } from 'typeorm';
 import { Task } from './entities/task.entity';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
@@ -212,5 +212,18 @@ export class TasksService {
     const task = await this.findOne(id);
     task.status = status as any;
     return this.tasksRepository.save(task);
+  }
+
+  async batchUpdateStatus(ids: string[], status: TaskStatus): Promise<UpdateResult> {
+    return this.tasksRepository
+      .createQueryBuilder()
+      .update()
+      .set({ status })
+      .whereInIds(ids)
+      .execute();
+  }
+
+  async batchDelete(ids: string[]): Promise<DeleteResult> {
+    return this.tasksRepository.createQueryBuilder().delete().whereInIds(ids).execute();
   }
 }
