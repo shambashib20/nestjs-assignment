@@ -1,204 +1,92 @@
-# TaskFlow API - Senior Backend Engineer Coding Challenge Solution
+# TaskFlow API – Coding Challenge Solution
 
-## Introduction
+## 🌟 Introduction
+This is my solution for the **TaskFlow API backend challenge**.  
+The goal was to take a half-done task management API and make it **production-ready** by fixing problems, improving performance, and adding missing features.
 
-This repository contains the solution to the TaskFlow API coding challenge. The goal of this challenge is to refactor and enhance a partially implemented task management API, addressing various architectural, performance, and security issues to create a production-ready application.
+In short:
+- Cleaned up the code  
+- Fixed design issues  
+- Made the API faster and safer  
+- Added clear patterns for real-world usage  
 
-## Tech Stack
+---
 
-- **Language**: TypeScript
-- **Framework**: NestJS
-- **ORM**: TypeORM with PostgreSQL
-- **Queue System**: BullMQ with Redis
-- **API Style**: REST with JSON
-- **Package Manager**: Bun
-- **Testing**: Bun test
+## 🛠 Tech Stack
+- **Language**: TypeScript  
+- **Framework**: NestJS  
+- **Database & ORM**: PostgreSQL + TypeORM  
+- **Queue System**: BullMQ with Redis  
+- **Package Manager**: Bun  
+- **API Style**: REST with JSON  
+- **Testing**: Bun test  
 
-## Getting Started
+---
 
-### Prerequisites
+## 🚀 What I Did / Key Improvements
 
-- Node.js (v16+)
-- Bun (latest version)
-- PostgreSQL
-- Redis
+### ✅ General Fixes
+- Replaced direct repository usage inside controllers with **service-based access** (removed anti-pattern).  
+- Added **error handling and logging** to critical parts of the system.  
+- Improved **code readability** by following NestJS best practices.  
+- Marked injected services and repositories as `readonly` for safety.  
 
-### Setup Instructions
+### ✅ Database & Querying
+- Fixed **N+1 query problem** in list endpoints by using `QueryBuilder` and joins.  
+- Added **pagination and filtering** for tasks (by status and priority).  
+- Added **safe defaults** for `page` and `limit`.  
+- Added ordering to **overdue task checks** so tasks are processed in the correct order.  
 
-1. Clone this repository
-2. Install dependencies:
-   ```bash
-   bun install
-   ```
-3. Configure environment variables by copying `.env.example` to `.env`:
-   ```bash
-   cp .env.example .env
-   # Update the .env file with your database and Redis connection details
-   ```
-4. Database Setup:
+### ✅ Overdue Task Processing
+- Implemented an **hourly cron job** that finds overdue tasks.  
+- Added **bulk queueing** instead of enqueuing jobs one-by-one (better performance).  
+- Added **transaction support** so tasks are marked as `OVERDUE` in the database before being queued.  
+- Added **idempotency check** so overdue tasks are not reprocessed every hour.  
 
-   Ensure your PostgreSQL database is running, then create a database:
+### ✅ Batch Operations
+- Improved `POST /tasks/batch` to avoid N+1 queries.  
+- Added support for **bulk update and delete** using `IN (:...ids)` queries.  
+- Each batch operation now returns a clear **success/failure response**.  
 
-   ```bash
-   # Using psql
-   psql -U postgres
-   CREATE DATABASE taskflow;
-   \q
+### ✅ Authentication & Seeding
+- Authentication endpoints for login and registration.  
+- Database seeder with two default users:  
+  - **Admin** → `admin@example.com / admin123`  
+  - **User** → `user@example.com / user123`  
 
-   # Or using createdb
-   createdb -U postgres taskflow
-   ```
+---
 
-   Build the TypeScript files to ensure the migrations can be run:
+## 📖 Endpoints Overview
 
-   ```bash
-   bun run build
-   ```
+### 🔐 Authentication
+- `POST /auth/register` – Register a new user  
+- `POST /auth/login` – Login with email and password  
 
-5. Run database migrations:
+### 📌 Tasks
+- `GET /tasks` – List tasks with filtering + pagination  
+- `GET /tasks/:id` – Get task details  
+- `POST /tasks` – Create a task  
+- `PATCH /tasks/:id` – Update a task  
+- `DELETE /tasks/:id` – Delete a task  
+- `POST /tasks/batch` – Batch update or delete tasks  
 
-   ```bash
-   # Option 1: Standard migration (if "No migrations are pending" but tables aren't created)
-   bun run migration:run
+---
 
-   # Option 2: Force table creation with our custom script
-   bun run migration:custom
-   ```
+## 🔑 My Biggest Improvements
+1. **Performance** → Removed N+1 queries, added query builder, bulk operations.  
+2. **Cron Job** → Made it production-ready with bulk queueing, transactions, idempotency.  
+3. **Reliability** → Better error handling, structured logging, service-first design.  
+4. **Scalability** → Added pagination and filters to `GET /tasks`.  
+5. **Security & Safety** → Marked dependencies as readonly, validated enums.  
 
-   Our custom migration script will:
+---
 
-   - Try to run formal migrations first
-   - If no migrations are executed, it will directly create the necessary tables
-   - It provides detailed logging to help troubleshoot database setup issues
+## 🏁 Conclusion
+The **TaskFlow API** is now a **clean, scalable, and production-ready service**.  
+It has:
+- A proper structure  
+- Safe queries  
+- Background processing with queues  
+- A working authentication system  
 
-6. Seed the database with initial data:
-   ```bash
-   bun run seed
-   ```
-7. Start the development server:
-   ```bash
-   bun run start:dev
-   ```
-
-### Troubleshooting Database Issues
-
-If you continue to have issues with database connections:
-
-1. Check that PostgreSQL is properly installed and running:
-
-   ```bash
-   # On Linux/Mac
-   systemctl status postgresql
-   # or
-   pg_isready
-
-   # On Windows
-   sc query postgresql
-   ```
-
-2. Verify your database credentials by connecting manually:
-
-   ```bash
-   psql -h localhost -U postgres -d taskflow
-   ```
-
-3. If needed, manually create the schema from the migration files:
-   - Look at the SQL in `src/database/migrations/`
-   - Execute the SQL manually in your database
-
-### Default Users
-
-The seeded database includes two users:
-
-1. Admin User:
-
-   - Email: admin@example.com
-   - Password: admin123
-   - Role: admin
-
-2. Regular User:
-   - Email: user@example.com
-   - Password: user123
-   - Role: user
-
-## API Endpoints
-
-The API should expose the following endpoints:
-
-### Authentication Routes
-
-- `POST /auth/login` - Authenticate a user
-- `POST /auth/register` - Register a new user
-
-### Tasks assigned to me
-
-- `GET /tasks` - List tasks with filtering and pagination
-- `GET /tasks/:id` - Get task details
-- `POST /tasks` - Create a task
-- `PATCH /tasks/:id` - Update a task
-- `DELETE /tasks/:id` - Delete a task
-- `POST /tasks/batch` - Batch operations on tasks
-
-
-
-
-### Solutions with respect to the required endpoints
-
-1. *GET Tasks Endpoint*:
-   -Implemented pagination and filtering by status and priority.
-   -Used TypeORM's query builder for efficient database queries.
-
-
-   code example: 
-
-   The entire block of controller code (containing the get all tasks) is provided here, with my changes as best to my knowledge!
-   ```typescript
-   export class TasksController {
-  constructor(
-    private readonly tasksService: TasksService,
-    // Anti-pattern: Controller directly accessing repository
-    @InjectRepository(Task)
-    private taskRepository: Repository<Task>
-  ) {}
-
-  @Post()
-  @ApiOperation({ summary: 'Create a new task' })
-  create(@Body() createTaskDto: CreateTaskDto) {
-    return this.tasksService.create(createTaskDto);
-  }
-
-  @Get()
-  @ApiOperation({ summary: 'Find all tasks with optional filtering' })
-  @ApiQuery({ name: 'status', required: false })
-  @ApiQuery({ name: 'priority', required: false })
-  @ApiQuery({ name: 'page', required: false })
-  @ApiQuery({ name: 'limit', required: false })
-  async findAll(
-    @Query('status') status?: string,
-    @Query('priority') priority?: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
-  ) {
-    // Validation inserted and converted enum values
-    const validStatus =
-      status && Object.values(TaskStatus).includes(status as TaskStatus)
-        ? (status as TaskStatus)
-        : undefined;
-    const validPriority =
-      priority && Object.values(TaskPriority).includes(priority as TaskPriority)
-        ? (priority as TaskPriority)
-        : undefined;
-
-    const result = await this.tasksService.findAll(
-      { status: validStatus, priority: validPriority },
-      Number(page),
-      Number(limit),
-    );
-    return {
-      data: result.data,
-      count: result.count,
-      page: Number(page),
-      limit: Number(limit),
-    };
-  }  
-} ```
+This challenge demonstrates my ability to **spot real-world backend problems** and **fix them with solid engineering practices**.  
