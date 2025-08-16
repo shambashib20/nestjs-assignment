@@ -89,4 +89,4 @@ It has:
 - Background processing with queues  
 - A working authentication system  
 
-This challenge demonstrates my ability to **spot real-world backend problems** and **fix them with solid engineering practices**.  
+
